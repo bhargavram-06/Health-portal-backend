@@ -16,7 +16,7 @@ const PORT = process.env.PORT || 5000;
 app.use(cors({
     origin: [
         "http://localhost:5173", // Local development (Vite default)
-        "https://your-project-name.netlify.app" // YOUR FUTURE NETLIFY URL
+        "https://symptom-analyzer.netlify.app" // YOUR FUTURE NETLIFY URL
     ],
     credentials: true
 }));
