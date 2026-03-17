@@ -7,11 +7,10 @@ const nodemailer = require('nodemailer');
 const User = require('../models/User');
 
 // --- Updated Helper for Nodemailer ---
-// Using host and port 465 is more reliable for Gmail than just 'service: gmail'
 const transporter = nodemailer.createTransport({
     host: 'smtp.gmail.com',
     port: 465,
-    secure: true, // Use SSL
+    secure: true, 
     auth: {
         user: process.env.EMAIL_USER, 
         pass: process.env.EMAIL_PASS  
@@ -49,7 +48,7 @@ router.post('/register', async (req, res) => {
         });
     } catch (err) {
         console.error("Register Error:", err.message);
-        res.status(500).send('Server Error');
+        res.status(500).json({ msg: 'Server Error' });
     }
 });
 
@@ -57,10 +56,22 @@ router.post('/register', async (req, res) => {
 router.post('/login', async (req, res) => {
     const { email, password, captchaToken } = req.body;
     try {
-        const response = await axios.post(`https://www.google.com/recaptcha/api/siteverify`, null, {
-            params: { secret: process.env.RECAPTCHA_SECRET_KEY, response: captchaToken }
-        });
-        if (!response.data.success) return res.status(400).json({ msg: "reCAPTCHA failed" });
+        // --- FIXED: reCAPTCHA Verification ---
+        // Some environments require the secret/response in the URL params explicitly
+        const secretKey = process.env.RECAPTCHA_SECRET_KEY;
+        
+        if (!captchaToken) {
+            return res.status(400).json({ msg: "reCAPTCHA token is missing" });
+        }
+
+        const verifyUrl = `https://www.google.com/recaptcha/api/siteverify?secret=${secretKey}&response=${captchaToken}`;
+        
+        const response = await axios.post(verifyUrl);
+
+        if (!response.data.success) {
+            console.error("reCAPTCHA Error Details:", response.data['error-codes']);
+            return res.status(400).json({ msg: "reCAPTCHA verification failed" });
+        }
 
         let user = await User.findOne({ email });
         if (!user) return res.status(400).json({ msg: "Invalid Credentials" });
@@ -86,13 +97,12 @@ router.post('/login', async (req, res) => {
         });
     } catch (err) {
         console.error("Login Error:", err.message);
-        res.status(500).send('Server Error');
+        res.status(500).json({ msg: 'Server Error' });
     }
 });
 
 // --- FORGOT PASSWORD ROUTES ---
 
-// 1. Send OTP
 router.post('/forgot-password', async (req, res) => {
     const { email } = req.body;
     try {
@@ -126,7 +136,6 @@ router.post('/forgot-password', async (req, res) => {
     }
 });
 
-// 2. Verify OTP
 router.post('/verify-otp', async (req, res) => {
     const { email, otp } = req.body;
     try {
@@ -140,28 +149,30 @@ router.post('/verify-otp', async (req, res) => {
         
         res.json({ msg: "OTP verified" });
     } catch (err) {
-        res.status(500).send('Server Error');
+        res.status(500).json({ msg: 'Server Error' });
     }
 });
 
-// 3. Reset Password
 router.post('/reset-password', async (req, res) => {
     const { email, password } = req.body;
     try {
         const user = await User.findOne({ email });
         if (!user) return res.status(404).json({ msg: "User not found" });
 
+        // CRITICAL: You must hash the new password too! 
         const salt = await bcrypt.genSalt(10);
-        user.password = await bcrypt.hash(password, salt);
+        const hashedPassword = await bcrypt.hash(password, salt);
         
-        // Clear OTP fields after successful reset
+        // Update user
+        user.password = hashedPassword;
         user.resetPasswordOTP = undefined;
         user.resetPasswordExpires = undefined;
         await user.save();
 
         res.json({ msg: "Password updated successfully" });
     } catch (err) {
-        res.status(500).send('Server Error');
+        console.error("Reset Error:", err.message);
+        res.status(500).json({ msg: 'Server Error' });
     }
 });
 
