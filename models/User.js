@@ -33,7 +33,7 @@ const UserSchema = new mongoose.Schema({
     date: {
         type: Date,
         default: Date.now
-    }, // Added missing comma here
+    },
     resetPasswordOTP: String,
     resetPasswordExpires: Date
 });
