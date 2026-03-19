@@ -15,10 +15,13 @@ const PORT = process.env.PORT || 5000;
 // Replace the Netlify URL with your actual Netlify link once you deploy the frontend.
 app.use(cors({
     origin: [
-        "http://localhost:5173", // Local development (Vite default)
-        "https://symptom-analyzer.netlify.app" // YOUR FUTURE NETLIFY URL
+        "http://localhost:5173", 
+        "https://symptom-analyzer.netlify.app",
+        "https://health-portal-frontend.netlify.app" // Add any other Netlify variants you use
     ],
-    credentials: true
+    methods: ["GET", "POST", "PUT", "DELETE"],
+    credentials: true,
+    allowedHeaders: ["Content-Type", "Authorization"]
 }));
 
 app.use(express.json());

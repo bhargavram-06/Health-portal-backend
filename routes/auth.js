@@ -8,9 +8,7 @@ const User = require('../models/User');
 
 // --- Updated Helper for Nodemailer ---
 const transporter = nodemailer.createTransport({
-    host: 'smtp.gmail.com',
-    port: 465,
-    secure: true, 
+    service: 'gmail', // This is easier than manual host/port
     auth: {
         user: process.env.EMAIL_USER, 
         pass: process.env.EMAIL_PASS  
@@ -139,13 +137,15 @@ router.post('/forgot-password', async (req, res) => {
 router.post('/verify-otp', async (req, res) => {
     const { email, otp } = req.body;
     try {
-        const user = await User.findOne({ 
-            email, 
-            resetPasswordOTP: otp, 
-            resetPasswordExpires: { $gt: Date.now() } 
-        });
+        const user = await User.findOne({ email });
         
-        if (!user) return res.status(400).json({ msg: "Invalid or expired OTP" });
+        if (!user || user.resetPasswordOTP !== otp) {
+            return res.status(400).json({ msg: "Invalid OTP" });
+        }
+
+        if (Date.now() > user.resetPasswordExpires) {
+            return res.status(400).json({ msg: "OTP has expired" });
+        }
         
         res.json({ msg: "OTP verified" });
     } catch (err) {
