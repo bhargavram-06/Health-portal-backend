@@ -6,23 +6,16 @@ const axios = require('axios');
 const nodemailer = require('nodemailer');
 const User = require('../models/User');
 
-// --- 1. FIXED NODEMAILER CONFIG FOR RENDER ---
+// --- 1. ENHANCED NODEMAILER CONFIG ---
 const transporter = nodemailer.createTransport({
-    host: 'smtp.gmail.com',
-    port: 587,
-    secure: false, // Must be false for port 587
-    pool: true,
+    service: 'gmail', // Using the built-in service helper is often more stable
     auth: {
         user: process.env.EMAIL_USER, 
         pass: process.env.EMAIL_PASS  
-    },
-    tls: {
-        // This helps bypass network restrictions on cloud servers
-        rejectUnauthorized: false 
     }
 });
 
-// CRITICAL: Startup check - Check Render Logs for this!
+// Startup check
 transporter.verify((error, success) => {
     if (error) {
         console.log("❌ NODEMAILER CONFIG ERROR:", error.message);
@@ -83,7 +76,7 @@ router.post('/login', async (req, res) => {
     }
 });
 
-// --- 4. FORGOT PASSWORD ---
+// --- 4. FORGOT PASSWORD (FIXED LOGIC) ---
 router.post('/forgot-password', async (req, res) => {
     const { email } = req.body;
     try {
@@ -108,10 +101,12 @@ router.post('/forgot-password', async (req, res) => {
                 </div>`
         };
 
+        // Improved error handling for the sendMail function
         transporter.sendMail(mailOptions, (error, info) => {
             if (error) {
-                console.error("❌ SENDMAIL FAILED:", error.message);
-                return res.status(500).json({ msg: "SMTP Error: Check backend logs" });
+                console.error("❌ NODEMAILER SEND ERROR:", error);
+                // Return the actual error message to the frontend for debugging
+                return res.status(500).json({ msg: `SMTP Error: ${error.message}` });
             }
             console.log("✅ OTP SENT SUCCESSFULLY:", info.response);
             res.json({ msg: "OTP sent to your email" });
