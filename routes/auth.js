@@ -6,13 +6,19 @@ const axios = require('axios');
 const nodemailer = require('nodemailer');
 const User = require('../models/User');
 
-// --- 1. NODEMAILER CONFIG ---
+// --- 1. FIXED NODEMAILER CONFIG FOR RENDER ---
 const transporter = nodemailer.createTransport({
-    service: 'gmail',
-    pool: true, // Uses pooled connections for better performance on Render
+    host: 'smtp.gmail.com',
+    port: 587,
+    secure: false, // Must be false for port 587
+    pool: true,
     auth: {
         user: process.env.EMAIL_USER, 
         pass: process.env.EMAIL_PASS  
+    },
+    tls: {
+        // This helps bypass network restrictions on cloud servers
+        rejectUnauthorized: false 
     }
 });
 
@@ -77,7 +83,7 @@ router.post('/login', async (req, res) => {
     }
 });
 
-// --- 4. FORGOT PASSWORD (The Troublemaker) ---
+// --- 4. FORGOT PASSWORD ---
 router.post('/forgot-password', async (req, res) => {
     const { email } = req.body;
     try {
@@ -94,14 +100,14 @@ router.post('/forgot-password', async (req, res) => {
             to: email,
             subject: 'Password Reset OTP',
             html: `
-                <div style="font-family: sans-serif; text-align: center; padding: 20px;">
+                <div style="font-family: sans-serif; text-align: center; padding: 20px; border: 1px solid #eee; border-radius: 10px;">
                     <h2 style="color: #00c853;">Security OTP</h2>
                     <p>Enter this code to reset your password:</p>
-                    <div style="font-size: 30px; font-weight: bold; background: #eee; padding: 10px; display: inline-block;">${otp}</div>
+                    <div style="font-size: 32px; font-weight: bold; background: #f4f4f4; padding: 15px; display: inline-block; letter-spacing: 5px;">${otp}</div>
+                    <p style="color: #888; font-size: 12px; margin-top: 10px;">This code expires in 10 minutes.</p>
                 </div>`
         };
 
-        // Use a callback to catch the EXACT error during send
         transporter.sendMail(mailOptions, (error, info) => {
             if (error) {
                 console.error("❌ SENDMAIL FAILED:", error.message);
@@ -121,8 +127,13 @@ router.post('/forgot-password', async (req, res) => {
 router.post('/verify-otp', async (req, res) => {
     const { email, otp } = req.body;
     try {
-        const user = await User.findOne({ email, resetPasswordOTP: otp });
-        if (!user || Date.now() > user.resetPasswordExpires) {
+        const user = await User.findOne({ 
+            email, 
+            resetPasswordOTP: otp,
+            resetPasswordExpires: { $gt: Date.now() } 
+        });
+        
+        if (!user) {
             return res.status(400).json({ msg: "Invalid or expired OTP" });
         }
         res.json({ msg: "OTP verified" });
@@ -135,12 +146,14 @@ router.post('/reset-password', async (req, res) => {
     const { email, password } = req.body;
     try {
         const user = await User.findOne({ email });
+        if (!user) return res.status(404).json({ msg: "User not found" });
+
         const salt = await bcrypt.genSalt(10);
         user.password = await bcrypt.hash(password, salt);
         user.resetPasswordOTP = undefined;
         user.resetPasswordExpires = undefined;
         await user.save();
-        res.json({ msg: "Password updated" });
+        res.json({ msg: "Password updated successfully" });
     } catch (err) {
         res.status(500).json({ msg: 'Server Error' });
     }
