@@ -10,21 +10,20 @@ const User = require('../models/User');
 const transporter = nodemailer.createTransport({
     host: 'smtp.gmail.com',
     port: 587,
-    secure: false, // Must be false for 587
-    pool: true,
+    secure: false, // Must be false for port 587 (STARTTLS)
+    pool: true,    // Connection pooling for better performance
     auth: {
         user: process.env.EMAIL_USER, 
         pass: process.env.EMAIL_PASS  
     },
     tls: {
-        // This prevents the "Connection Timeout" by allowing the 
-        // handshake even on restricted cloud networks
+        // Essential for cloud servers like Render to bypass network blocks
         rejectUnauthorized: false,
         minVersion: "TLSv1.2"
     }
 });
 
-// Startup check - Check your Render logs for this!
+// Startup Check: Verify the bridge to Gmail is open
 transporter.verify((error, success) => {
     if (error) {
         console.log("❌ NODEMAILER CONFIG ERROR:", error.message);
@@ -92,36 +91,37 @@ router.post('/forgot-password', async (req, res) => {
         const user = await User.findOne({ email });
         if (!user) return res.status(404).json({ msg: "User not found" });
 
+        // Generate 6-digit OTP
         const otp = Math.floor(100000 + Math.random() * 900000).toString();
         user.resetPasswordOTP = otp;
-        user.resetPasswordExpires = Date.now() + 600000; // 10 mins
+        user.resetPasswordExpires = Date.now() + 600000; // 10 minutes
         await user.save();
 
         const mailOptions = {
             from: `"Vital Portal Support" <${process.env.EMAIL_USER}>`,
             to: email,
-            subject: 'Password Reset OTP',
+            subject: 'Your Password Reset OTP',
             html: `
                 <div style="font-family: sans-serif; text-align: center; padding: 20px; border: 1px solid #eee; border-radius: 10px;">
                     <h2 style="color: #00c853;">Security OTP</h2>
-                    <p>Enter this code to reset your password:</p>
+                    <p>Use the code below to reset your password:</p>
                     <div style="font-size: 32px; font-weight: bold; background: #f4f4f4; padding: 15px; display: inline-block; letter-spacing: 5px;">${otp}</div>
                     <p style="color: #888; font-size: 12px; margin-top: 10px;">This code expires in 10 minutes.</p>
                 </div>`
         };
 
-        // Use a clean Promise-based sendMail
+        // Send the mail
         await transporter.sendMail(mailOptions);
         console.log("✅ OTP SENT SUCCESSFULLY to:", email);
         res.json({ msg: "OTP sent to your email" });
 
     } catch (err) {
-        console.error("❌ SMTP ERROR:", err.message);
+        console.error("❌ SMTP SEND ERROR:", err.message);
         res.status(500).json({ msg: `SMTP Error: ${err.message}` });
     }
 });
 
-// --- 5. VERIFY & RESET ---
+// --- 5. VERIFY OTP ---
 router.post('/verify-otp', async (req, res) => {
     const { email, otp } = req.body;
     try {
@@ -140,17 +140,22 @@ router.post('/verify-otp', async (req, res) => {
     }
 });
 
+// --- 6. RESET PASSWORD ---
 router.post('/reset-password', async (req, res) => {
     const { email, password } = req.body;
     try {
         const user = await User.findOne({ email });
         if (!user) return res.status(404).json({ msg: "User not found" });
 
+        // Hash the new password
         const salt = await bcrypt.genSalt(10);
         user.password = await bcrypt.hash(password, salt);
+        
+        // Clear OTP fields
         user.resetPasswordOTP = undefined;
         user.resetPasswordExpires = undefined;
         await user.save();
+        
         res.json({ msg: "Password updated successfully" });
     } catch (err) {
         res.status(500).json({ msg: 'Server Error' });
