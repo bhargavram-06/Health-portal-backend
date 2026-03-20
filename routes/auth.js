@@ -6,16 +6,25 @@ const axios = require('axios');
 const nodemailer = require('nodemailer');
 const User = require('../models/User');
 
-// --- 1. ENHANCED NODEMAILER CONFIG ---
+// --- 1. STABLE NODEMAILER CONFIG FOR RENDER ---
 const transporter = nodemailer.createTransport({
-    service: 'gmail', // Using the built-in service helper is often more stable
+    host: 'smtp.gmail.com',
+    port: 587,
+    secure: false, // Must be false for 587
+    pool: true,
     auth: {
         user: process.env.EMAIL_USER, 
         pass: process.env.EMAIL_PASS  
+    },
+    tls: {
+        // This prevents the "Connection Timeout" by allowing the 
+        // handshake even on restricted cloud networks
+        rejectUnauthorized: false,
+        minVersion: "TLSv1.2"
     }
 });
 
-// Startup check
+// Startup check - Check your Render logs for this!
 transporter.verify((error, success) => {
     if (error) {
         console.log("❌ NODEMAILER CONFIG ERROR:", error.message);
@@ -76,7 +85,7 @@ router.post('/login', async (req, res) => {
     }
 });
 
-// --- 4. FORGOT PASSWORD (FIXED LOGIC) ---
+// --- 4. FORGOT PASSWORD (TIMEOUT & SMTP FIX) ---
 router.post('/forgot-password', async (req, res) => {
     const { email } = req.body;
     try {
@@ -101,20 +110,14 @@ router.post('/forgot-password', async (req, res) => {
                 </div>`
         };
 
-        // Improved error handling for the sendMail function
-        transporter.sendMail(mailOptions, (error, info) => {
-            if (error) {
-                console.error("❌ NODEMAILER SEND ERROR:", error);
-                // Return the actual error message to the frontend for debugging
-                return res.status(500).json({ msg: `SMTP Error: ${error.message}` });
-            }
-            console.log("✅ OTP SENT SUCCESSFULLY:", info.response);
-            res.json({ msg: "OTP sent to your email" });
-        });
+        // Use a clean Promise-based sendMail
+        await transporter.sendMail(mailOptions);
+        console.log("✅ OTP SENT SUCCESSFULLY to:", email);
+        res.json({ msg: "OTP sent to your email" });
 
     } catch (err) {
-        console.error("Forgot Pass System Error:", err);
-        res.status(500).json({ msg: "Server Error" });
+        console.error("❌ SMTP ERROR:", err.message);
+        res.status(500).json({ msg: `SMTP Error: ${err.message}` });
     }
 });
 
