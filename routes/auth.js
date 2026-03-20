@@ -6,16 +6,26 @@ const axios = require('axios');
 const nodemailer = require('nodemailer');
 const User = require('../models/User');
 
-// --- Updated Helper for Nodemailer ---
+// --- 1. NODEMAILER CONFIG ---
 const transporter = nodemailer.createTransport({
     service: 'gmail',
+    pool: true, // Uses pooled connections for better performance on Render
     auth: {
-        user: process.env.EMAIL_USER, // Render will provide bhargavramapchila@gmail.com
-        pass: process.env.EMAIL_PASS  // Render will provide your 16-digit key
+        user: process.env.EMAIL_USER, 
+        pass: process.env.EMAIL_PASS  
     }
 });
 
-// @route   POST api/auth/register
+// CRITICAL: Startup check - Check Render Logs for this!
+transporter.verify((error, success) => {
+    if (error) {
+        console.log("❌ NODEMAILER CONFIG ERROR:", error.message);
+    } else {
+        console.log("✅ NODEMAILER IS READY TO SEND OTP");
+    }
+});
+
+// --- 2. REGISTRATION ---
 router.post('/register', async (req, res) => {
     const { fullName, email, password, age, bloodGroup, height, weight } = req.body;
     try {
@@ -28,18 +38,7 @@ router.post('/register', async (req, res) => {
         user.password = await bcrypt.hash(password, salt);
         await user.save();
 
-        const payload = { 
-            user: { 
-                id: user.id, 
-                fullName: user.fullName, 
-                email: user.email,
-                age: user.age, 
-                bloodGroup: user.bloodGroup, 
-                height: user.height, 
-                weight: user.weight 
-            } 
-        };
-
+        const payload = { user: { id: user.id, fullName: user.fullName, email: user.email } };
         jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '24h' }, (err, token) => {
             if (err) throw err;
             res.json({ token, msg: "Registration Successful" });
@@ -50,24 +49,15 @@ router.post('/register', async (req, res) => {
     }
 });
 
-// @route   POST api/auth/login
+// --- 3. LOGIN ---
 router.post('/login', async (req, res) => {
     const { email, password, captchaToken } = req.body;
     try {
-        // --- FIXED: reCAPTCHA Verification ---
-        // Some environments require the secret/response in the URL params explicitly
         const secretKey = process.env.RECAPTCHA_SECRET_KEY;
-        
-        if (!captchaToken) {
-            return res.status(400).json({ msg: "reCAPTCHA token is missing" });
-        }
-
         const verifyUrl = `https://www.google.com/recaptcha/api/siteverify?secret=${secretKey}&response=${captchaToken}`;
-        
         const response = await axios.post(verifyUrl);
 
         if (!response.data.success) {
-            console.error("reCAPTCHA Error Details:", response.data['error-codes']);
             return res.status(400).json({ msg: "reCAPTCHA verification failed" });
         }
 
@@ -77,30 +67,17 @@ router.post('/login', async (req, res) => {
         const isMatch = await bcrypt.compare(password, user.password);
         if (!isMatch) return res.status(400).json({ msg: "Invalid Credentials" });
 
-        const payload = { 
-            user: { 
-                id: user.id, 
-                fullName: user.fullName, 
-                email: user.email,
-                age: user.age, 
-                bloodGroup: user.bloodGroup, 
-                height: user.height, 
-                weight: user.weight 
-            } 
-        };
-
+        const payload = { user: { id: user.id, fullName: user.fullName, email: user.email } };
         jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '24h' }, (err, token) => {
             if (err) throw err;
             res.json({ token });
         });
     } catch (err) {
-        console.error("Login Error:", err.message);
         res.status(500).json({ msg: 'Server Error' });
     }
 });
 
-// --- FORGOT PASSWORD ROUTES ---
-
+// --- 4. FORGOT PASSWORD (The Troublemaker) ---
 router.post('/forgot-password', async (req, res) => {
     const { email } = req.body;
     try {
@@ -109,44 +86,45 @@ router.post('/forgot-password', async (req, res) => {
 
         const otp = Math.floor(100000 + Math.random() * 900000).toString();
         user.resetPasswordOTP = otp;
-        user.resetPasswordExpires = Date.now() + 600000; // 10 minutes
+        user.resetPasswordExpires = Date.now() + 600000; // 10 mins
         await user.save();
 
         const mailOptions = {
-            from: `"Health Portal Support" <${process.env.EMAIL_USER}>`,
+            from: `"Vital Portal Support" <${process.env.EMAIL_USER}>`,
             to: email,
-            subject: 'Your Password Reset OTP',
+            subject: 'Password Reset OTP',
             html: `
-                <div style="font-family: sans-serif; padding: 20px; border: 1px solid #eee; border-radius: 10px;">
-                    <h2 style="color: #00c853;">Password Reset Request</h2>
-                    <p>You requested to reset your password. Use the code below to proceed:</p>
-                    <div style="font-size: 32px; font-weight: bold; letter-spacing: 5px; color: #333; margin: 20px 0;">${otp}</div>
-                    <p style="color: #666; font-size: 12px;">This code will expire in 10 minutes.</p>
-                </div>
-            `
+                <div style="font-family: sans-serif; text-align: center; padding: 20px;">
+                    <h2 style="color: #00c853;">Security OTP</h2>
+                    <p>Enter this code to reset your password:</p>
+                    <div style="font-size: 30px; font-weight: bold; background: #eee; padding: 10px; display: inline-block;">${otp}</div>
+                </div>`
         };
 
-        await transporter.sendMail(mailOptions);
-        res.json({ msg: "OTP sent to your email" });
+        // Use a callback to catch the EXACT error during send
+        transporter.sendMail(mailOptions, (error, info) => {
+            if (error) {
+                console.error("❌ SENDMAIL FAILED:", error.message);
+                return res.status(500).json({ msg: "SMTP Error: Check backend logs" });
+            }
+            console.log("✅ OTP SENT SUCCESSFULLY:", info.response);
+            res.json({ msg: "OTP sent to your email" });
+        });
+
     } catch (err) {
-        console.error("Forgot Pass Error:", err);
-        res.status(500).json({ msg: "Error sending email" });
+        console.error("Forgot Pass System Error:", err);
+        res.status(500).json({ msg: "Server Error" });
     }
 });
 
+// --- 5. VERIFY & RESET ---
 router.post('/verify-otp', async (req, res) => {
     const { email, otp } = req.body;
     try {
-        const user = await User.findOne({ email });
-        
-        if (!user || user.resetPasswordOTP !== otp) {
-            return res.status(400).json({ msg: "Invalid OTP" });
+        const user = await User.findOne({ email, resetPasswordOTP: otp });
+        if (!user || Date.now() > user.resetPasswordExpires) {
+            return res.status(400).json({ msg: "Invalid or expired OTP" });
         }
-
-        if (Date.now() > user.resetPasswordExpires) {
-            return res.status(400).json({ msg: "OTP has expired" });
-        }
-        
         res.json({ msg: "OTP verified" });
     } catch (err) {
         res.status(500).json({ msg: 'Server Error' });
@@ -157,21 +135,13 @@ router.post('/reset-password', async (req, res) => {
     const { email, password } = req.body;
     try {
         const user = await User.findOne({ email });
-        if (!user) return res.status(404).json({ msg: "User not found" });
-
-        // CRITICAL: You must hash the new password too! 
         const salt = await bcrypt.genSalt(10);
-        const hashedPassword = await bcrypt.hash(password, salt);
-        
-        // Update user
-        user.password = hashedPassword;
+        user.password = await bcrypt.hash(password, salt);
         user.resetPasswordOTP = undefined;
         user.resetPasswordExpires = undefined;
         await user.save();
-
-        res.json({ msg: "Password updated successfully" });
+        res.json({ msg: "Password updated" });
     } catch (err) {
-        console.error("Reset Error:", err.message);
         res.status(500).json({ msg: 'Server Error' });
     }
 });
