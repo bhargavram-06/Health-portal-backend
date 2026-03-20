@@ -10,8 +10,8 @@ const User = require('../models/User');
 const transporter = nodemailer.createTransport({
     service: 'gmail',
     auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS // MUST be the 16-character App Password
+        user: process.env.EMAIL_USER, // Render will provide bhargavramapchila@gmail.com
+        pass: process.env.EMAIL_PASS  // Render will provide your 16-digit key
     }
 });
 

@@ -14,14 +14,9 @@ const PORT = process.env.PORT || 5000;
 // --- 2. UPDATED CORS MIDDLEWARE ---
 // Replace the Netlify URL with your actual Netlify link once you deploy the frontend.
 app.use(cors({
-    origin: [
-        "http://localhost:5173", 
-        "https://symptom-analyzer.netlify.app",
-        "https://health-portal-frontend.netlify.app" // Add any other Netlify variants you use
-    ],
-    methods: ["GET", "POST", "PUT", "DELETE"],
+    origin: "*", // This tells the browser to allow any frontend URL to talk to the backend
     credentials: true,
-    allowedHeaders: ["Content-Type", "Authorization"]
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
 }));
 
 app.use(express.json());
